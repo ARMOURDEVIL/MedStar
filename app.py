@@ -40,6 +40,11 @@ def validate_session_and_role():
     session["user_role"] = active_session["user_role"]
     session["user_email"] = active_session["user_email"]
 
+    cursor.execute(
+        "UPDATE sessions SET expires_at = DATE_ADD(NOW(), INTERVAL 30 MINUTE) WHERE session_id=%s",
+        (session_id,)
+    )
+    conn.commit()
 
 @app.route("/signup",methods=["POST"])
 def signup():
@@ -121,7 +126,7 @@ def login():
         #Create a new session
         session_id = str(uuid.uuid4())
         cursor.execute(
-            "INSERT INTO sessions (session_id, user_id, user_role,user_email, expires_at) VALUES (%s, %s,%s, %s, NOW() + INTERVAL 1 HOUR)",
+            "INSERT INTO sessions (session_id, user_id, user_role,user_email, expires_at) VALUES (%s, %s,%s, %s, NOW() + INTERVAL 30 MINUTE)",
             (session_id, user["id"], user["user_role"],user["email"])
         )
 
