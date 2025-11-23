@@ -9,8 +9,8 @@ import uuid
 import pandas as pd
 from flask import request, jsonify
 import os
-from datetime import datetime
-
+from datetime import date
+from reconcile_functions import *
 
 ALLOWED_EXTENSIONS = {"xlsx"}
 
@@ -19,7 +19,10 @@ def allowed_file(filename):
 
 app = Flask(__name__)
 app.secret_key = "harshit25102000"
-CORS(app,supports_credentials=True)
+CORS(app,
+     resources={r"/*": {"origins": ["http://localhost:5173", "http://127.0.0.1:5173"]}},
+     supports_credentials=True)
+
 
 @app.before_request
 def validate_session_and_role():
@@ -144,7 +147,7 @@ def login():
 
         #Return success and set cookie
         resp = make_response(return_success({"email": email, "role": user["user_role"]}))
-        resp.set_cookie("session_id", session_id, httponly=True, secure=True, samesite="Strict")
+        resp.set_cookie("session_id", session_id, httponly=True, secure=True, samesite="None",path="/")
 
         # also store in Flask session object if needed
         session["email"] = email
@@ -162,7 +165,8 @@ def me():
 
         user_role = session.get("user_role")
         user_id= session.get("user_id")
-        user_email = session.get("email")
+        user_email = session.get("user_email")
+
 
         return return_success({"user_role": user_role, "user_id": user_id, "user_email": user_email})
 
@@ -219,88 +223,74 @@ def upload_excel_sheets():
         internal_file = request.files.get("internal")
         agency_file = request.files.get("agency")
 
+        # If neither file is provided, return error
         if not internal_file and not agency_file:
             return jsonify({"error": "At least one file (internal or agency) is required"}), 400
 
-
-
         uploaded_by = session.get("email")
-        now = datetime.now()
-        # Save file temporarily
+        now = date.today()
+
         os.makedirs("uploads", exist_ok=True)
-        if internal_file:
-            if not allowed_file(internal_file.filename):
-                return jsonify({"error": "Internal sheet must be .xlsx"}), 400
-        internal_path = f"uploads/internal_{internal_file.filename}"
-        internal_file.save(internal_path)
-
-        # Read excel WITHOUT depending on header labels
-        try:
-            df = pd.read_excel(internal_path, header=None)  # Do NOT use headers
-        except Exception as e:
-            return jsonify({"error": f"Failed to read Excel file: {str(e)}"}), 400
-
-        # Remove header row (first line of sheet)
-        df = df.iloc[1:]
-
         conn = get_db()
         cursor = conn.cursor()
 
-        insert_query = """
-            INSERT INTO internal_data (
-                shift_day,
-                shift_date,
-                shift_start_time,
-                shift_end_time,
-                facility,
-                state,
-                invoice_date,
-                invoice,
-                role,
-                staff_id,
-                first_name,
-                surname,
-                shift_time_slot,
-                total_shift_length,
-                total_charges,
-                gst,
-                total,
-                created_at,
-                uploaded_by
-            ) 
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,%s)
-        """
+        # ---------------------------
+        # 📌 PROCESS INTERNAL SHEET
+        # ---------------------------
+        if internal_file:
+            if not allowed_file(internal_file.filename):
+                return jsonify({"error": "Internal sheet must be .xlsx"}), 400
 
+            internal_path = f"uploads/internal_{internal_file.filename}"
+            internal_file.save(internal_path)
 
+            try:
+                df = pd.read_excel(internal_path, header=None)
+            except Exception as e:
+                return jsonify({"error": f"Failed to read Internal Excel: {str(e)}"}), 400
 
-        # Loop rows using index-based values
-        for _, row in df.iterrows():
-            cursor.execute(
-                insert_query,
-                (
-                    to_nullable(row[0], str),  # shift_day
-                    to_nullable(row[1], str),  # shift_date
-                    to_nullable(row[2], str),  # shift_start_time
-                    to_nullable(row[3], str),  # shift_end_time
-                    to_nullable(row[4], str),  # facility
-                    to_nullable(row[5], str),  # state
-                    to_nullable(row[6], str),  # invoice_date
-                    to_nullable(row[7], int),  # invoice
-                    to_nullable(row[8], str),  # role
-                    to_nullable(row[9], str),  # staff_id
-                    to_nullable(row[10], str),  # first_name
-                    to_nullable(row[11], str),  # surname
-                    to_nullable(row[12], str),  # shift_time_slot
-                    to_nullable(row[13], float),  # total_shift_length
-                    to_nullable(row[14], float),  # total_charges
-                    to_nullable(row[15], float),  # gst
-                    to_nullable(row[16], float),  # total
+            df = df.iloc[1:]  # remove header
+
+            insert_query = """
+                INSERT INTO internal_data (
+                    assignment_id, shift_day, shift_date, shift_start_time, shift_end_time,
+                    facility, state, invoice_date, invoice, role, staff_id, first_name, surname,
+                    shift_time_slot, total_shift_length, total_charges, gst, total,
+                    created_at, uploaded_by
+                ) 
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """
+
+            for _, row in df.iterrows():
+                if row.isna().all():  # skip blank rows
+                    continue
+
+                cursor.execute(insert_query, (
+                    to_nullable(row[0], int),
+                    to_nullable(row[1], str),
+                    to_nullable(row[2], str),
+                    to_nullable(row[3], str),
+                    to_nullable(row[4], str),
+                    to_nullable(row[5], str),
+                    to_nullable(row[6], str),
+                    to_nullable(row[7], str),
+                    to_nullable(row[8], int),
+                    to_nullable(row[9], str),
+                    to_nullable(row[10], str),
+                    to_nullable(row[11], str),
+                    to_nullable(row[12], str),
+                    to_nullable(row[13], str),
+                    to_nullable(row[14], float),
+                    to_nullable(row[15], float),
+                    to_nullable(row[16], float),
+                    to_nullable(row[17], float),
                     now,
                     uploaded_by
-                )
-            )
+                ))
 
-
+        # ---------------------------
+        # 📌 PROCESS AGENCY SHEET
+        # ---------------------------
         if agency_file:
             if not allowed_file(agency_file.filename):
                 return jsonify({"error": "Agency sheet must be .xlsx"}), 400
@@ -311,54 +301,122 @@ def upload_excel_sheets():
             try:
                 df = pd.read_excel(agency_path, header=None)
             except Exception as e:
-                return jsonify({"error": f"Failed to read agency Excel: {str(e)}"}), 400
+                return jsonify({"error": f"Failed to read Agency Excel: {str(e)}"}), 400
 
-            df = df.iloc[1:]  # Skip header
+            df = df.iloc[1:]
 
             insert_agency = """
-                            INSERT INTO agency_data (role, id, first_name, surname, start_date, end_date, \
-                                                     facility_name, shift_date, request_type, bill_rate, \
-                                                     billing_period, invoice, register_type, total, \
-                                                     invoiced_units, shift_load_name, created_at, uploaded_by)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) \
-                            """
+                INSERT INTO agency_data (
+                    role, assignment_id, first_name, surname, start_date, end_date,
+                    facility_name, shift_date, request_type, bill_rate, billing_period,
+                    invoice, register_type, total, invoiced_units, shift_load_name,
+                    created_at, uploaded_by
+                )
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """
 
             for _, row in df.iterrows():
+                if row.isna().all():
+                    continue
 
-                # Extract name from "Surname, Firstname"
+                # Extract name: "Surname, Firstname"
                 full_name = to_nullable(row[2], str)
-
                 if full_name and "," in full_name:
                     surname, first_name = [x.strip() for x in full_name.split(",", 1)]
                 else:
                     surname, first_name = None, None
 
                 cursor.execute(insert_agency, (
-                    to_nullable(row[0], str),  # role
-                    to_nullable(row[1], int),  # id
-                    first_name,  # extracted first_name
-                    surname,  # extracted surname
-                    to_nullable(row[3], str),  # start_date
-                    to_nullable(row[4], str),  # end_date
-                    to_nullable(row[5], str),  # facility_name
-                    to_nullable(row[6], str),  # shift_date
-                    to_nullable(row[7], str),  # request_type
-                    to_nullable(row[8], str),  # bill_rate
-                    to_nullable(row[9], str),  # billing_period
-                    to_nullable(row[10], int),  # invoice
-                    to_nullable(row[11], str),  # register_type
-                    to_nullable(row[12], float),  # total
-                    to_nullable(row[13], float),  # invoiced_units
-                    to_nullable(row[14], str),  # shift_load_name
+                    to_nullable(row[0], str),
+                    to_nullable(row[1], int),
+                    first_name,
+                    surname,
+                    to_nullable(row[3], str),
+                    to_nullable(row[4], str),
+                    to_nullable(row[5], str),
+                    to_nullable(row[6], str),
+                    to_nullable(row[7], str),
+                    to_nullable(row[8], str),
+                    to_nullable(row[9], str),
+                    to_nullable(row[10], int),
+                    to_nullable(row[11], str),
+                    to_nullable(row[12], float),
+                    to_nullable(row[13], float),
+                    to_nullable(row[14], str),
                     now,
                     uploaded_by
                 ))
 
         conn.commit()
 
-        return jsonify({
-            "message": "Sheets uploaded and stored successfully"
-        }), 200
+        return jsonify({"message": "Sheets uploaded and stored successfully"}), 200
+
+    except Exception as e:
+        return return_error(message=str(e))
+
+
+@app.route("/reconcile_all", methods=["POST"])
+def reconcile_all_endpoint():
+    # try:
+        results = reconcile_all()
+        return jsonify({"message": "Reconciliation complete", "results": results}), 200
+    # except Exception as e:
+    #     return return_error(str(e))
+
+@app.route("/reconcile", methods=["POST"])
+def reconcile_by_dates_endpoint():
+    try:
+        data = request.json
+        start_date = data.get("start_date")
+        end_date = data.get("end_date")
+
+        if not start_date or not end_date:
+            return jsonify({"error": "start_date and end_date required"}), 400
+
+        results = reconcile_by_date(start_date, end_date)
+        return jsonify({"message": "Reconciliation complete", "results": results}), 200
+
+    except Exception as e:
+        return return_error(str(e))
+
+
+@app.route("/change_password", methods=["POST"])
+def change_password():
+    try:
+        data = request.get_json()
+        email = data.get("email")
+        password1 = data.get("password1")
+        password2 = data.get("password2")
+
+        if not email or not password1 or not password2:
+            return return_error(error="MISSING_FIELDS", message="Email and both passwords are required")
+
+        # Password match check
+        if password1 != password2:
+            return return_error(error="PASSWORD_MISMATCH", message="Passwords do not match")
+
+        conn = get_db()
+        cursor = conn.cursor(dictionary=True)
+
+        # Check if user exists
+        cursor.execute("SELECT * FROM users WHERE email=%s", (email,))
+        user = cursor.fetchone()
+        if user is None:
+            return return_error(error="ACCOUNT_NOT_FOUND", message="No account with this email exists")
+
+        # Hash new password
+        new_hash = bcrypt.hashpw(password1.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+        # Update password hash
+        cursor.execute("""
+            UPDATE users 
+            SET password_hash=%s 
+            WHERE email=%s
+        """, (new_hash, email))
+
+        conn.commit()
+
+        return return_success(message="Password changed successfully")
 
     except Exception as e:
         return return_error(message=str(e))
@@ -369,7 +427,7 @@ if __name__=="__main__":
 
     app.config['DEBUG'] = True
     app.secret_key = "harshit25102000"
-    app.config.update(SESSION_COOKIE_SAMESITE="Strict", SESSION_COOKIE_SECURE=True)
+    app.config.update(SESSION_COOKIE_SAMESITE="None", SESSION_COOKIE_SECURE=False)
     # app.config["SESSION_PERMANENT"] = True
     # app.config["SESSION_TYPE"] = "mongodb"
     # app.config["SESSION_MONGODB"] = client
