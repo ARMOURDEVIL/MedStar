@@ -227,7 +227,7 @@ def upload_excel_sheets():
         if not internal_file and not agency_file:
             return jsonify({"error": "At least one file (internal or agency) is required"}), 400
 
-        uploaded_by = session.get("email")
+        uploaded_by = session.get("user_email")
         now = date.today()
 
         os.makedirs("uploads", exist_ok=True)
@@ -349,6 +349,14 @@ def upload_excel_sheets():
 
         conn.commit()
 
+        try:
+            for f in os.listdir("uploads"):
+                file_path = os.path.join("uploads", f)
+                if os.path.isfile(file_path):
+                    os.remove(file_path)
+        except Exception as cleanup_err:
+            print("Cleanup failed:", cleanup_err)
+
         return jsonify({"message": "Sheets uploaded and stored successfully"}), 200
 
     except Exception as e:
@@ -416,7 +424,7 @@ def change_password():
 
         conn.commit()
 
-        return return_success(message="Password changed successfully")
+        return return_success()
 
     except Exception as e:
         return return_error(message=str(e))
