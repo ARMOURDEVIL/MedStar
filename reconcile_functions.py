@@ -103,16 +103,18 @@ def reconcile_by_date(start_date, end_date):
     conn = get_db()
     cursor = conn.cursor(dictionary=True)
 
+    # 1️⃣ Fetch ALL rows within date range (matched + pending)
     cursor.execute("""
         SELECT assignment_id, total
         FROM internal_data
-        WHERE (status IS NULL OR status = 'Pending')
-          AND shift_date BETWEEN %s AND %s
+        WHERE shift_date BETWEEN %s AND %s
     """, (start_date, end_date))
 
     rows = cursor.fetchall()
 
     assignment_ids = []
+
+    # 2️⃣ Reconcile every row in date range
     for row in rows:
         assignment_ids.append(reconcile_single_row(cursor, row))
 
@@ -121,7 +123,7 @@ def reconcile_by_date(start_date, end_date):
     if not assignment_ids:
         return []
 
-    # 🔥 Fetch full rows of reconciled records
+    # 3️⃣ Return complete reconciled rows (like /reconcile_all)
     format_str = ",".join(["%s"] * len(assignment_ids))
     cursor.execute(f"""
         SELECT *
@@ -130,6 +132,7 @@ def reconcile_by_date(start_date, end_date):
     """, assignment_ids)
 
     return cursor.fetchall()
+
 
 
 def reconcile_by_date_and_facility(start_date, end_date,facility):

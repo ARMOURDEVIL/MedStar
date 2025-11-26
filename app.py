@@ -27,6 +27,9 @@ CORS(app,
 @app.before_request
 def validate_session_and_role():
     # Skip validation for public endpoints
+    if request.method == "OPTIONS":
+        return
+        
     if request.endpoint in ['login']:
         return
 
