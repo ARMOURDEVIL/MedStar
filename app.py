@@ -29,7 +29,7 @@ def validate_session_and_role():
     # Skip validation for public endpoints
     if request.method == "OPTIONS":
         return
-        
+
     if request.endpoint in ['login']:
         return
 
@@ -464,13 +464,17 @@ def reconcile_by_dates_and_facility_endpoint():
         data = request.json
         start_date = data.get("start_date")
         end_date = data.get("end_date")
-        facility = data.get("facility")
+        facilities = data.get("facilities")   # <-- list from frontend
 
-        if not start_date or not end_date or not facility:
-            return jsonify({"error": "start_date, end_date and facility is required"}), 400
+        if not start_date or not end_date or not facilities:
+            return jsonify({"error": "start_date, end_date and facilities are required"}), 400
 
-        results = reconcile_by_date_and_facility(start_date, end_date,facility)
-        return jsonify({"message": "Reconciliation complete", "results": results}), 200
+        results = reconcile_by_date_and_facility(start_date, end_date, facilities)
+
+        return jsonify({
+            "message": "Reconciliation complete",
+            "results": results
+        }), 200
 
     except Exception as e:
         return return_error(str(e))

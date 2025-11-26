@@ -135,34 +135,76 @@ def reconcile_by_date(start_date, end_date):
 
 
 
-def reconcile_by_date_and_facility(start_date, end_date,facility):
+# def reconcile_by_date_and_facility(start_date, end_date,facility):
+#     conn = get_db()
+#     cursor = conn.cursor(dictionary=True)
+
+#     cursor.execute("""
+#         SELECT assignment_id, total
+#         FROM internal_data
+#         WHERE (status IS NULL OR status = 'Pending')
+#           AND shift_date BETWEEN %s AND %s AND facility = %s
+#     """, (start_date, end_date,facility))
+
+#     rows = cursor.fetchall()
+
+#     assignment_ids = []
+#     for row in rows:
+#         assignment_ids.append(reconcile_single_row(cursor, row))
+
+#     conn.commit()
+
+#     if not assignment_ids:
+#         return []
+
+#     # 🔥 Fetch full rows of reconciled records
+#     format_str = ",".join(["%s"] * len(assignment_ids))
+#     cursor.execute(f"""
+#         SELECT *
+#         FROM internal_data
+#         WHERE assignment_id IN ({format_str})
+#     """, assignment_ids)
+
+#     return cursor.fetchall()
+
+def reconcile_by_date_and_facility(start_date, end_date, facilities):
     conn = get_db()
     cursor = conn.cursor(dictionary=True)
 
-    cursor.execute("""
+    # Ensure facilities is always a list
+    if isinstance(facilities, str):
+        facilities = [facilities]
+
+    # Build dynamic placeholders: (%s, %s, ...)
+    facility_placeholders = ",".join(["%s"] * len(facilities))
+
+    # 1️⃣ FETCH Pending rows for reconciliation
+    cursor.execute(f"""
         SELECT assignment_id, total
         FROM internal_data
         WHERE (status IS NULL OR status = 'Pending')
-          AND shift_date BETWEEN %s AND %s AND facility = %s
-    """, (start_date, end_date,facility))
+          AND shift_date BETWEEN %s AND %s
+          AND facility IN ({facility_placeholders})
+    """, [start_date, end_date] + facilities)
 
-    rows = cursor.fetchall()
+    pending_rows = cursor.fetchall()
 
-    assignment_ids = []
-    for row in rows:
-        assignment_ids.append(reconcile_single_row(cursor, row))
+    # Reconcile each row
+    reconciled_ids = []
+    for row in pending_rows:
+        reconciled_ids.append(reconcile_single_row(cursor, row))
 
     conn.commit()
 
-    if not assignment_ids:
-        return []
-
-    # 🔥 Fetch full rows of reconciled records
-    format_str = ",".join(["%s"] * len(assignment_ids))
+    # 2️⃣ FETCH ALL rows regardless of status
     cursor.execute(f"""
         SELECT *
         FROM internal_data
-        WHERE assignment_id IN ({format_str})
-    """, assignment_ids)
+        WHERE shift_date BETWEEN %s AND %s
+          AND facility IN ({facility_placeholders})
+        ORDER BY shift_date ASC
+    """, [start_date, end_date] + facilities)
 
-    return cursor.fetchall()
+    all_rows = cursor.fetchall()
+
+    return all_rows
