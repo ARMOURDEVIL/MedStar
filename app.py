@@ -76,6 +76,8 @@ def signup():
         password = data["password1"]
         password2=data["password2"]
         role=data["role"]
+        if role not in ["Admin", "Internal"]:
+            return return_error(error="INVALID_ROLE", message="Role must be Admin or Internal")
 
         conn = get_db()
         cursor = conn.cursor(dictionary=True)
@@ -482,24 +484,24 @@ def reconcile_by_dates_and_facility_endpoint():
 @app.route("/get_all_users", methods=["GET"])
 def get_all_users():
     try:
-        # Ensure only Admin can delete users
         if session.get("user_role") != "Admin":
-            return return_error(error="FORBIDDEN", message="Only Admins can delete users"), 403
+            return return_error(error="FORBIDDEN", message="Only Admins can view users"), 403
 
         conn = get_db()
         cursor = conn.cursor(dictionary=True)
 
-        # Validate session and fetch role
-        cursor.execute(
-            "SELECT first_name,last_name,email from users;"
-        )
-        all_users= cursor.fetchall()
+        cursor.execute("""
+            SELECT first_name, last_name, email, user_role
+            FROM users
+            ORDER BY first_name
+        """)
+
+        all_users = cursor.fetchall()
 
         return return_success(all_users)
 
     except Exception as e:
         return return_error(message=str(e))
-
 
 @app.route("/stats", methods=["GET"])
 def get_statistics():
