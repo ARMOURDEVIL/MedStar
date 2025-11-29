@@ -9,7 +9,7 @@ import uuid
 import pandas as pd
 from flask import request, jsonify
 import os
-from datetime import date
+from datetime import date, datetime, timedelta
 from reconcile_functions import *
 
 ALLOWED_EXTENSIONS = {"xlsx"}
@@ -20,7 +20,7 @@ def allowed_file(filename):
 app = Flask(__name__)
 app.secret_key = "harshit25102000"
 CORS(app,
-     resources={r"/*": {"origins": ["http://localhost:5173", "http://127.0.0.1:5173"]}},
+     resources={r"/*": {"origins": ["https://d781c1e027ad.ngrok-free.app", "http://localhost:5173", "http://127.0.0.1:5173"]}},
      supports_credentials=True)
 
 
@@ -542,6 +542,95 @@ def get_statistics():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@app.route("/weekly_summary", methods=["GET"])
+def weekly_summary():
+    try:
+        db = get_db()
+        cursor = db.cursor(dictionary=True)
+
+        # 1️⃣ Get all rows
+        cursor.execute("""
+            SELECT shift_date, total, outstanding
+            FROM internal_data
+            ORDER BY shift_date DESC
+        """)
+        rows = cursor.fetchall()
+
+        if not rows:
+            return jsonify({"status": "SUCCESS", "weeks": []})
+
+        # 2️⃣ Group rows by week (Monday start)
+        weekly_map = {}
+
+        for row in rows:
+            shift_date = row["shift_date"]
+
+            if isinstance(shift_date, str):
+                shift_date = datetime.strptime(shift_date, "%Y-%m-%d")
+
+            monday = shift_date - timedelta(days=shift_date.weekday())
+            monday_key = monday.strftime("%Y-%m-%d")
+
+            if monday_key not in weekly_map:
+                weekly_map[monday_key] = []
+
+            weekly_map[monday_key].append(row)
+
+        # 3️⃣ Sort latest first
+        sorted_weeks = sorted(weekly_map.keys(), reverse=True)
+        last_7_weeks = sorted_weeks[:7]
+
+        results = []
+
+        for monday_key in last_7_weeks:
+            week_rows = weekly_map[monday_key]
+
+            # Total Amount
+            total_amount = sum(r["total"] for r in week_rows)
+
+            # Pending = negative outstanding
+            pending = sum(
+                r["outstanding"]
+                for r in week_rows
+                if r["outstanding"] is not None and r["outstanding"] < 0
+            ) * (-1)
+
+            # Extra = positive outstanding
+            extra = sum(
+                r["outstanding"]
+                for r in week_rows
+                if r["outstanding"] is not None and r["outstanding"] > 0
+            )
+
+            # NEW FORMULA:
+            reconciled = total_amount - pending
+
+            # Week Label
+            monday_dt = datetime.strptime(monday_key, "%Y-%m-%d")
+            week_label = monday_dt.strftime("%d %b %Y")
+
+            sunday_dt = monday_dt + timedelta(days=6)
+            sunday_key = sunday_dt.strftime("%Y-%m-%d")
+
+            results.append({
+                "week": week_label,
+                "total": float(total_amount),
+                "reconciled": float(reconciled),
+                "pending": float(pending),
+                "extra": float(extra),
+                "start_date": monday_key,
+                "end_date": sunday_key
+            })
+
+        cursor.close()
+        db.close()
+
+        return jsonify({"status": "SUCCESS", "weeks": results})
+
+    except Exception as e:
+        print("WEEKLY SUMMARY ERROR:", e)
+        return jsonify({"status": "ERROR", "message": str(e)})
 
 
 if __name__=="__main__":
