@@ -14,6 +14,13 @@ from reconcile_functions import *
 
 ALLOWED_EXTENSIONS = {"xlsx"}
 
+def success(message):
+    return jsonify({"success": True, "message": message}), 200
+
+def fail(message):
+    return jsonify({"success": False, "message": message}), 400
+
+
 def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
@@ -223,6 +230,7 @@ def delete_user():
 
 
 @app.route("/upload_excel", methods=["POST"])
+
 def upload_excel_sheets():
     try:
         internal_file = request.files.get("internal")
@@ -269,29 +277,32 @@ def upload_excel_sheets():
             for _, row in df.iterrows():
                 if row.isna().all():  # skip blank rows
                     continue
-
-                cursor.execute(insert_query, (
-                    to_nullable(row[0], int),
-                    to_nullable(row[1], str),
-                    to_nullable(row[2], str),
-                    to_nullable(row[3], str),
-                    to_nullable(row[4], str),
-                    to_nullable(row[5], str),
-                    to_nullable(row[6], str),
-                    to_nullable(row[7], str),
-                    to_nullable(row[8], int),
-                    to_nullable(row[9], str),
-                    to_nullable(row[10], str),
-                    to_nullable(row[11], str),
-                    to_nullable(row[12], str),
-                    to_nullable(row[13], str),
-                    to_nullable(row[14], float),
-                    to_nullable(row[15], float),
-                    to_nullable(row[16], float),
-                    to_nullable(row[17], float),
-                    now,
-                    uploaded_by
-                ))
+                try: 
+                    cursor.execute(insert_query, (
+                        to_nullable(row[0], int),
+                        to_nullable(row[1], str),
+                        to_nullable(row[2], str),
+                        to_nullable(row[3], str),
+                        to_nullable(row[4], str),
+                        to_nullable(row[5], str),
+                        to_nullable(row[6], str),
+                        to_nullable(row[7], str),
+                        to_nullable(row[8], int),
+                        to_nullable(row[9], str),
+                        to_nullable(row[10], str),
+                        to_nullable(row[11], str),
+                        to_nullable(row[12], str),
+                        to_nullable(row[13], str),
+                        to_nullable(row[14], float),
+                        to_nullable(row[15], float),
+                        to_nullable(row[16], float),
+                        to_nullable(row[17], float),
+                        now,
+                        uploaded_by
+                    ))
+                except Exception as e:
+                    conn.rollback()
+                    return fail(str(e))
 
         # ---------------------------
         # 📌 PROCESS AGENCY SHEET
@@ -331,26 +342,30 @@ def upload_excel_sheets():
                 else:
                     surname, first_name = None, None
 
-                cursor.execute(insert_agency, (
-                    to_nullable(row[0], str),
-                    to_nullable(row[1], int),
-                    first_name,
-                    surname,
-                    to_nullable(row[3], str),
-                    to_nullable(row[4], str),
-                    to_nullable(row[5], str),
-                    to_nullable(row[6], str),
-                    to_nullable(row[7], str),
-                    to_nullable(row[8], str),
-                    to_nullable(row[9], str),
-                    to_nullable(row[10], int),
-                    to_nullable(row[11], str),
-                    to_nullable(row[12], float),
-                    to_nullable(row[13], float),
-                    to_nullable(row[14], str),
-                    now,
-                    uploaded_by
-                ))
+                try:
+                    cursor.execute(insert_agency, (
+                        to_nullable(row[0], str),
+                        to_nullable(row[1], int),
+                        first_name,
+                        surname,
+                        to_nullable(row[3], str),
+                        to_nullable(row[4], str),
+                        to_nullable(row[5], str),
+                        to_nullable(row[6], str),
+                        to_nullable(row[7], str),
+                        to_nullable(row[8], str),
+                        to_nullable(row[9], str),
+                        to_nullable(row[10], int),
+                        to_nullable(row[11], str),
+                        to_nullable(row[12], float),
+                        to_nullable(row[13], float),
+                        to_nullable(row[14], str),
+                        now,
+                        uploaded_by
+                    ))
+                except Exception as e:
+                    conn.rollback()
+                    return fail(str(e))
 
         conn.commit()
 
@@ -362,7 +377,8 @@ def upload_excel_sheets():
         except Exception as cleanup_err:
             print("Cleanup failed:", cleanup_err)
 
-        return jsonify({"message": "Sheets uploaded and stored successfully"}), 200
+        return success("Sheets uploaded and stored successfully")
+
 
     except Exception as e:
         return return_error(message=str(e))
